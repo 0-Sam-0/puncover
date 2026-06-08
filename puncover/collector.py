@@ -746,7 +746,11 @@ class Collector:
 
         report_max_map = {}
         for sym in self.symbols.values():
-            name = sym["display_name"]
+            # Only functions have call trees; a variable whose display_name
+            # matches a requested name would otherwise raise KeyError below.
+            if sym.get(TYPE) != TYPE_FUNCTION:
+                continue
+            name = sym.get(DISPLAY_NAME)
             if name not in function_names:
                 continue
 
@@ -842,10 +846,13 @@ class Collector:
                     pass
                 else:
                     print("unknown key " + sym_ele)
-            # add flatten symbol to list
-            symbols = fn_symbols if non_circular_sym["type"] == "function" else var_symbols
-            non_circular_sym.pop("type")
-            symbols += [non_circular_sym]
+            # add flattened symbol to the matching list. Some symbols have no
+            # TYPE (nm letters not in our map); skip them instead of raising.
+            sym_type = non_circular_sym.pop("type", None)
+            if sym_type == TYPE_FUNCTION:
+                fn_symbols.append(non_circular_sym)
+            elif sym_type == TYPE_VARIABLE:
+                var_symbols.append(non_circular_sym)
         # if file exist
         export_json_data["functions"] = fn_symbols
         export_json_data["variables"] = var_symbols

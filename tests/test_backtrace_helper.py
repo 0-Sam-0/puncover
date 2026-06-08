@@ -100,15 +100,28 @@ class TestBacktraceHelperTreeSizes(unittest.TestCase):
         actual = self.h.deepest_callee_tree(self.a)
         self.assertEqual(expected, actual)
 
-        expected = (10, [self.b])
+        # b -> a -> (b dropped as a back-edge): the longest simple path is b + a.
+        # The previous implementation returned the cache-poisoned (10, [b]) here,
+        # because computing a first cached b without a on the path.
+        expected = (11, [self.b, self.a])
         actual = self.h.deepest_callee_tree(self.b)
         self.assertEqual(expected, actual)
 
     def test_cycle_3(self):
         self.c[collector.CALLEES].remove(self.d)
+        # Longest simple path through the a<->b / a->c->b cycle is a+b+c = 111
+        # for every entry node; previously b and c returned cache-poisoned 10/110.
         self.assertEqual(111, self.h.deepest_callee_tree(self.a)[0])
-        self.assertEqual(10, self.h.deepest_callee_tree(self.b)[0])
-        self.assertEqual(110, self.h.deepest_callee_tree(self.c)[0])
+        self.assertEqual(111, self.h.deepest_callee_tree(self.b)[0])
+        self.assertEqual(111, self.h.deepest_callee_tree(self.c)[0])
+
+    def test_cycle_order_independent(self):
+        # Same graph as test_cycle_3, but compute b FIRST -- the order that used
+        # to poison the shared cache. Every node must still get the correct value.
+        self.c[collector.CALLEES].remove(self.d)
+        self.assertEqual(111, self.h.deepest_callee_tree(self.b)[0])
+        self.assertEqual(111, self.h.deepest_callee_tree(self.c)[0])
+        self.assertEqual(111, self.h.deepest_callee_tree(self.a)[0])
 
     def test_caller(self):
         self.d[collector.CALLERS] = []

@@ -40,6 +40,8 @@ PERFORMS_INDIRECT_CALL = "performs_indirect_call"
 UNRESOLVED_CALLS_IN_CALL_TREE = "unresolved_calls_in_call_tree"
 MISSING_STACKSIZE_IN_CALL_TREE = "missing_stacksize_in_call_tree"
 UNBOUND_STACKSIZE_IN_CALL_TREE = "unbound_stacksize_in_call_tree"
+SELF_RECURSIVE = "self_recursive"
+RECURSION_IN_CALL_TREE = "recursion_in_call_tree"
 
 DEEPEST_CALLEE_TREE = "deepest_callee_tree"
 DEEPEST_CALLER_TREE = "deepest_caller_tree"
@@ -446,15 +448,20 @@ class Collector:
                 symbol[ASM] = list([self.enhanced_assembly_line(line) for line in symbol[ASM]])
 
     def add_function_call(self, caller, callee):
-        if caller != callee:
-            if callee not in caller[CALLEES]:
-                caller[CALLEES].append(callee)
-            if caller not in callee[CALLERS]:
-                callee[CALLERS].append(caller)
-                caller_file = caller.get("file", None)
-                callee_file = callee.get("file", None)
-                if callee_file and caller_file and callee_file != caller_file:
-                    callee["called_from_other_file"] = True
+        if caller == callee:
+            # Self-edges are intentionally not added to the call graph, but record
+            # the direct recursion so the worst-case-stack analysis can flag it
+            # (otherwise a self-recursive function silently reports one frame).
+            caller[SELF_RECURSIVE] = True
+            return
+        if callee not in caller[CALLEES]:
+            caller[CALLEES].append(callee)
+        if caller not in callee[CALLERS]:
+            callee[CALLERS].append(caller)
+            caller_file = caller.get("file", None)
+            callee_file = callee.get("file", None)
+            if callee_file and caller_file and callee_file != caller_file:
+                callee["called_from_other_file"] = True
 
     def add_function_call_from_assembly_line(self, function, line):
         if "<" not in line:
@@ -841,8 +848,13 @@ class Collector:
                     "base_file",
                     "deepest_callee_tree",
                     "deepest_caller_tree",
+                    "unresolved_calls_in_call_tree",
+                    "missing_stacksize_in_call_tree",
+                    "unbound_stacksize_in_call_tree",
+                    "self_recursive",
+                    "recursion_in_call_tree",
                 ]:
-                    # todo nothing?
+                    # internal call-tree analysis flags; not part of the report schema
                     pass
                 else:
                     print("unknown key " + sym_ele)

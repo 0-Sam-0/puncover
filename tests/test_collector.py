@@ -456,6 +456,17 @@ $t():
         self.assertEqual([], data["functions"])
         self.assertEqual([], data["variables"])
 
+    def test_self_recursion_sets_flag(self):
+        # A direct self-call records SELF_RECURSIVE but still adds no self-edge,
+        # so the recursion is not lost silently (F5).
+        c = Collector(None)
+        f = c.add_symbol("f", "0x10", type=collector.TYPE_FUNCTION, stack_size=8)
+        c.enhance_call_tree()
+        c.add_function_call(f, f)
+        self.assertTrue(f.get(collector.SELF_RECURSIVE))
+        self.assertEqual([], f[collector.CALLEES])
+        self.assertEqual([], f[collector.CALLERS])
+
     def test_enhance_function_size_from_assembly(self):
         c = Collector(None)
         c.symbols = {

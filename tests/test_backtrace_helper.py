@@ -131,3 +131,51 @@ class TestBacktraceHelperTreeSizes(unittest.TestCase):
     def test_caller_cycle(self):
         self.assertEqual(1111, self.h.deepest_caller_tree(self.f)[0])
         self.assertEqual(11111, self.h.deepest_caller_tree(self.e)[0])
+
+    def test_recursion_flag_mutual(self):
+        cc = collector.Collector(None)
+        x = cc.add_symbol("x", "10", type=collector.TYPE_FUNCTION, stack_size=1)
+        y = cc.add_symbol("y", "20", type=collector.TYPE_FUNCTION, stack_size=1)
+        z = cc.add_symbol("z", "30", type=collector.TYPE_FUNCTION, stack_size=1)
+        cc.enhance_call_tree()
+        cc.add_function_call(x, y)
+        cc.add_function_call(y, x)  # x <-> y mutual recursion; z is independent
+        h = BacktraceHelper(cc)
+        for fn in (x, y, z):
+            h.deepest_callee_tree(fn)
+            h.deepest_caller_tree(fn)
+        h.annotate_call_tree_flags()
+        self.assertTrue(x.get(collector.RECURSION_IN_CALL_TREE))
+        self.assertTrue(y.get(collector.RECURSION_IN_CALL_TREE))
+        self.assertFalse(z.get(collector.RECURSION_IN_CALL_TREE))
+
+    def test_recursion_flag_direct(self):
+        cc = collector.Collector(None)
+        r = cc.add_symbol("r", "40", type=collector.TYPE_FUNCTION, stack_size=1)
+        s = cc.add_symbol("s", "50", type=collector.TYPE_FUNCTION, stack_size=1)
+        cc.enhance_call_tree()
+        cc.add_function_call(r, r)  # direct self-recursion
+        cc.add_function_call(s, r)  # s -> r reaches the recursive r
+        h = BacktraceHelper(cc)
+        for fn in (r, s):
+            h.deepest_callee_tree(fn)
+            h.deepest_caller_tree(fn)
+        h.annotate_call_tree_flags()
+        self.assertTrue(r.get(collector.RECURSION_IN_CALL_TREE))
+        self.assertTrue(s.get(collector.RECURSION_IN_CALL_TREE))
+
+    def test_warning_flags_are_transitive(self):
+        # a -> b -> d, where d (deep in a's tree) performs an indirect call.
+        # The flag must reach a, not only d's direct parent b (F7).
+        cc = collector.Collector(None)
+        a = cc.add_symbol("a", "10", type=collector.TYPE_FUNCTION, stack_size=1)
+        b = cc.add_symbol("b", "20", type=collector.TYPE_FUNCTION, stack_size=1)
+        d = cc.add_symbol("d", "30", type=collector.TYPE_FUNCTION, stack_size=1)
+        d[collector.PERFORMS_INDIRECT_CALL] = True
+        cc.enhance_call_tree()
+        cc.add_function_call(a, b)
+        cc.add_function_call(b, d)
+        h = BacktraceHelper(cc)
+        h.annotate_call_tree_flags()
+        self.assertEqual(1, a.get(collector.UNRESOLVED_CALLS_IN_CALL_TREE))
+        self.assertEqual(1, b.get(collector.UNRESOLVED_CALLS_IN_CALL_TREE))

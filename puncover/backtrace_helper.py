@@ -6,6 +6,11 @@ from puncover import collector
 class BacktraceHelper:
     def __init__(self, collector):
         self.collector = collector
+        # Memo for deepest-tree results, kept OFF the symbol dicts on purpose:
+        # only acyclic (path-independent) results are stored here, so nothing
+        # cached is ever a cyclic, order-dependent value that could be wrongly
+        # reused for another start node.
+        self._deepest_memo = {}
 
     derive_functions_symbols_pattern = re.compile(r"\b(\w+)\b")
 
@@ -41,8 +46,9 @@ class BacktraceHelper:
         # stacks (e.g. a function inside a mutual-recursion cycle reporting only
         # its own frame). Acyclic results do not depend on the path, so they are
         # cached as before and the traversal stays fast on the common case.
-        if cache_attribute in f:
-            return f[cache_attribute], False
+        memo_key = (id(f), cache_attribute)
+        if memo_key in self._deepest_memo:
+            return self._deepest_memo[memo_key], False
 
         visited = [f] + (visited if visited else [])
         result = (0, [])
@@ -61,7 +67,7 @@ class BacktraceHelper:
 
         result = (result[0] + f.get(collector.STACK_SIZE, 0), [f] + result[1])
         if not hit_cycle:
-            f[cache_attribute] = result
+            self._deepest_memo[memo_key] = result
         return result, hit_cycle
 
     def annotate_call_tree_flags(self):
@@ -144,7 +150,13 @@ class BacktraceHelper:
         return result
 
     def deepest_callee_tree(self, f):
-        return self.deepest_call_tree(f, collector.CALLEES, collector.DEEPEST_CALLEE_TREE)
+        result = self.deepest_call_tree(f, collector.CALLEES, collector.DEEPEST_CALLEE_TREE)
+        # Always expose the deepest tree on the symbol, even when it contains a
+        # cycle: the template and the report read this key unconditionally.
+        f[collector.DEEPEST_CALLEE_TREE] = result
+        return result
 
     def deepest_caller_tree(self, f):
-        return self.deepest_call_tree(f, collector.CALLERS, collector.DEEPEST_CALLER_TREE)
+        result = self.deepest_call_tree(f, collector.CALLERS, collector.DEEPEST_CALLER_TREE)
+        f[collector.DEEPEST_CALLER_TREE] = result
+        return result
